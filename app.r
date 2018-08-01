@@ -11,26 +11,71 @@ library(RColorBrewer)
 
 #global variables ####
 
+# #setting group 1 - default
+# ##google api key for googleway
+# my_key <- readLines('api_key.txt')#"" # 
+# ##data file name
+# data_file <- "fake_data.txt"
+# ##additioal custome columns for display
+# additional_colids <- c()
+# additional_colnames <- c()
+# ##column name for preloaded google direction encoded string
+# gdirpl_colname <- ""
+
+#setting group 2 - real data
+##google api key for googleway
+my_key <- ""#readLines('api_key.txt')
+##data file name
+data_file <- "real_data.txt"
+##additioal custome columns for display
+additional_colids <- c('flag', 'note')
+additional_colnames <- c('Data Flag', 'Data Note')
+##column name for preloaded google direction encoded string
+gdirpl_colname <- "dir_polyline"
+
 #google maps basemap tiles
 map_url_google <-"https://mts1.google.com/vt/lyrs=m&hl=en&src=app&x={x}&y={y}&z={z}&s=G"
 #map zoom level
 zoom_level <- 11
-#google api key for googleway
-my_key <- ""
 #link to source code 
 githubrepo <- "https://github.com/moh-salah/Trip-Data-Visualization"
 
 #read data
-df <- fread("fake_data.txt",na.strings=c("","NA"))
+df <- fread(data_file,na.strings=c("","NA"))
+#define a household person id for each unique person
+df$hhprs_ID <- paste(df$household_id, df$person_id, sep="-")
 #count number of days for each person
-df <- ddply(df,.(person_id),transform, days = length(unique(day_number)))
+df <- ddply(df,.(hhprs_ID),transform, days = length(unique(day_number)))
 #define mode for googleway input
-df$g_mode <- ifelse(df$mode %in% c('Walk', 'Walking', 'On foot'), 'walking',
-                    ifelse(df$mode %in% c('Bus', 'Train', 'Transit'), 'transit',
-                                          ifelse(df$mode %in% c('Bike', 'Biking', 'Bicycling'), 'bicycling', 'driving')))
+df$g_mode <-
+  ifelse(
+    df$mode %in% c("Walk", 'Walking', 'On foot'),
+    'walking',
+    ifelse(
+      df$mode %in% c(
+        "Other bus",
+        "SkyTrain",
+        "SeaBus",
+        "Westcoast Express",
+        "Handydart",
+        "Transit bus",
+        "School bus",
+        'Bus',
+        'Train',
+        'Transit'
+      ),
+      'transit',
+      ifelse(
+        df$mode %in% c('Bike', 'Biking', 'Bicycling', "Bicycle"),
+        'bicycling',
+        'driving'
+      )
+    )
+  )
+
 #define list of person ids and the number of travel days
 #this is used later to define the conditional selection of days
-pers_days <- unique(df[c("person_id", "days")])
+pers_days <- unique(df[c("hhprs_ID", "days")])
 
 # UI side ####
 
@@ -52,16 +97,16 @@ ui <- dashboardPage(
       tags$div(tags$style(HTML( ".selectize-dropdown, .selectize-dropdown.form-control{z-index:10000;}"))), #to show dropdown menu in front of the map
       box(title = 'Select/Enter Person ID:', status = 'primary', solidHeader = TRUE,
         selectInput(
-          inputId ='person_id'
+          inputId ='hhprs_ID'
           ,label =''
-          ,choices = df$person_id
+          ,choices = df$hhprs_ID
           ,selected= 1
         )
         
       ),
       
       box(title = 'Select Diary Day:', status = 'primary', solidHeader = TRUE,
-        uiOutput('day_number') #use uiOutput along with renderUI to condition day_number choices on person_id
+        uiOutput('day_number') #use uiOutput along with renderUI to condition day_number choices on hhprs_ID
       ),
       
       box(width = 12,
@@ -107,7 +152,7 @@ server <- function(input, output, session) {
     
     #create a variable containg maxdays to condition day input choices
     maxdays <- reactive({
-      pers_days$days[pers_days$person_id==input$person_id]
+      pers_days$days[pers_days$hhprs_ID==input$hhprs_ID]
     })
     
     #creating day_number selectInput based on UiOutput
@@ -124,22 +169,44 @@ server <- function(input, output, session) {
   
   #subset data based on selection inputs
   df_sub <-  reactive({
-    subset(df, df$person_id==input$person_id & df$day_number==day())
+    subset(df, df$hhprs_ID==input$hhprs_ID & df$day_number==day())
   })
   
   #create direction by mode using 'googleway'
   routes <-  reactive({
-    lapply(1:(nrow(df_sub())), function(x){
-     directions  <- google_directions(origin = df_sub()[x,c('start_lat','start_lon')],
-                               destination = df_sub()[x, c('end_lat','end_lon')],
-                               key = my_key,
-                               #mode = 'driving',
-                               mode = df_sub()[x,c('g_mode')],
-                               simplify = TRUE)
-     #there is a function to plot polylines directly but not for leaflet
-     #decode the polyline and then plot the polyline in leaflet later
-      points <- decode_pl(directions$routes$overview_polyline$points)
-
+    lapply(1:(nrow(df_sub())), function(x) {
+      pl_string <- ""
+      # retrieve the prepolated directions or query it as needed - automatically detected by column name
+      if (gdirpl_colname %in% colnames(x)) {
+        pl_string <- (df_sub()[x, c('dir_polyline')])
+      } else {
+        directions  <-
+          google_directions(
+            origin = df_sub()[x, c('start_lat', 'start_lon')],
+            destination = df_sub()[x, c('end_lat', 'end_lon')],
+            key = my_key,
+            #mode = 'driving',
+            mode = df_sub()[x, c('g_mode')],
+            simplify = TRUE
+          )
+        # check directions returned
+        if (is.null(directions$routes$overview_polyline$points)) {
+          # no result returned case, use straight line
+          pl_string <-
+            encode_pl(lat = as.numeric(c(x[['start_lat']], x[['end_lat']])),
+                      lon = as.numeric(c(x[['start_lon']], x[['end_lon']])))
+        }
+        else{
+          # normal case
+          pl_string <- directions$routes$overview_polyline$points
+        }
+        
+      }
+      
+      #there is a function to plot polylines directly but not for leaflet
+      #decode the polyline and then plot the polyline in leaflet later
+      points <- decode_pl(pl_string)
+      
       return(points)
     }) %>% bind_rows(.id = "trip_id") #group points by trip_id so polylines can be plotted for each trip
   })
@@ -151,13 +218,13 @@ server <- function(input, output, session) {
   
   output$table01 <- DT::renderDataTable({
     DT::datatable(
-      df_sub()[c('household_id','person_id', 'trip_id', 'trip_sequence', 'start', 'end',
-                 'start_time', 'end_time', 'mode', 'purpose')]
+      df_sub()[c('household_id','hhprs_ID', 'trip_id', 'trip_sequence', 'start', 'end',
+                 'start_time', 'end_time', 'mode', 'purpose', additional_colids)]
       ,selection = "single"
       ,rownames=FALSE
       ,options=list(stateSave = TRUE, dom = 't')
       ,colnames = c('Household Id', 'Person Id', 'Trip Id', 'Trip Sequence', 'Trip Origin','Trip Destination',
-                    'Departure Time', 'Arrival Time', 'Travel Mode', 'Trip Purpose')
+                    'Departure Time', 'Arrival Time', 'Travel Mode', 'Trip Purpose', additional_colnames)
     )
   })
   
@@ -175,7 +242,7 @@ server <- function(input, output, session) {
       )
   })
   
-  #update map to plot markers and polylines for each person_id/day
+  #update map to plot markers and polylines for each hhprs_ID/day
   observe({
     leafletProxy("map01") %>%
       clearShapes() %>% 
@@ -188,7 +255,6 @@ server <- function(input, output, session) {
       ) %>%
       
       {
-        
         for (x in 1:(length(unique(routes()$trip_id)))){
           
           polylines <-   addPolylines(., data = subset(routes(), routes()$trip_id==x)
