@@ -24,9 +24,11 @@ library(RColorBrewer)
 
 #setting group 2 - real data
 ##google api key for googleway
-my_key <- ""#readLines('api_key.txt')
+# my_key <- ""
+my_key <- readLines('api_key.txt')
 ##data file name
-data_file <- "real_data.txt"
+# data_file <- "real_data.txt"
+data_file <- "real_data_no_dir.txt"
 ##additioal custome columns for display
 additional_colids <- c('flag', 'note')
 additional_colnames <- c('Data Flag', 'Data Note')
@@ -177,7 +179,7 @@ server <- function(input, output, session) {
     lapply(1:(nrow(df_sub())), function(x) {
       pl_string <- ""
       # retrieve the prepolated directions or query it as needed - automatically detected by column name
-      if (gdirpl_colname %in% colnames(x)) {
+      if (gdirpl_colname %in% colnames(df_sub()[x, ])) {
         pl_string <- (df_sub()[x, c('dir_polyline')])
       } else {
         directions  <-
@@ -193,8 +195,8 @@ server <- function(input, output, session) {
         if (is.null(directions$routes$overview_polyline$points)) {
           # no result returned case, use straight line
           pl_string <-
-            encode_pl(lat = as.numeric(c(x[['start_lat']], x[['end_lat']])),
-                      lon = as.numeric(c(x[['start_lon']], x[['end_lon']])))
+            encode_pl(lat = as.numeric(c(df_sub()[x, 'start_lat'], df_sub()[x, 'end_lat'])),
+                      lon = as.numeric(c(df_sub()[x, 'start_lon'], df_sub()[x, 'end_lon'])))
         }
         else{
           # normal case
