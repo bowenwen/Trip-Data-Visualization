@@ -24,11 +24,10 @@ library(RColorBrewer)
 
 #setting group 2 - real data
 ##google api key for googleway
-# my_key <- ""
-my_key <- readLines('api_key.txt')
+my_key <- ""
+# my_key <- readLines('api_key.txt')
 ##data file name
-# data_file <- "real_data.txt"
-data_file <- "real_data_no_dir.txt"
+data_file <- ""
 ##additioal custome columns for display
 additional_colids <- c('flag', 'note')
 additional_colnames <- c('Data Flag', 'Data Note')
@@ -36,7 +35,8 @@ additional_colnames <- c('Data Flag', 'Data Note')
 gdirpl_colname <- "dir_polyline"
 
 #google maps basemap tiles
-map_url_google <-"https://mts1.google.com/vt/lyrs=m&hl=en&src=app&x={x}&y={y}&z={z}&s=G"
+map_url_google <-"http://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga" # map
+# map_url_google <-"http://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga" # earth
 #map zoom level
 zoom_level <- 11
 #link to source code 
@@ -151,17 +151,19 @@ ui <- dashboardPage(
 # Server side ####
 
 server <- function(input, output, session) { 
-    
-    #create a variable containg maxdays to condition day input choices
-    maxdays <- reactive({
-      pers_days$days[pers_days$hhprs_ID==input$hhprs_ID]
-    })
-    
-    #creating day_number selectInput based on UiOutput
-    output$day_number <- renderUI({
-      selectInput(inputId ='day_x',label = '', choices=seq(1,maxdays()))
-    })
-    
+  
+  #create a variable containg maxdays to condition day input choices
+  maxdays <- reactive({
+    pers_days$days[pers_days$hhprs_ID == input$hhprs_ID]
+  })
+  
+  #creating day_number selectInput based on UiOutput
+  output$day_number <- renderUI({
+    selectInput(inputId = 'day_x',
+                label = '',
+                choices = seq(1, maxdays()))
+  })
+  
   #the app is initiated with a NULL value for conditions based on renderUI  
   #create a 'day' variable to store the input day 
   #this is only needed for the mode attribute in googleway to work properly- all the indicies have to have a value  
@@ -181,6 +183,12 @@ server <- function(input, output, session) {
       # retrieve the prepolated directions or query it as needed - automatically detected by column name
       if (gdirpl_colname %in% colnames(df_sub()[x, ])) {
         pl_string <- (df_sub()[x, c('dir_polyline')])
+        if (pl_string == "") {
+          # no result returned case, use straight line
+          pl_string <-
+            encode_pl(lat = as.numeric(c(df_sub()[x, 'start_lat'], df_sub()[x, 'end_lat'])),
+                      lon = as.numeric(c(df_sub()[x, 'start_lon'], df_sub()[x, 'end_lon'])))
+        }
       } else {
         directions  <-
           google_directions(
@@ -202,7 +210,6 @@ server <- function(input, output, session) {
           # normal case
           pl_string <- directions$routes$overview_polyline$points
         }
-        
       }
       
       #there is a function to plot polylines directly but not for leaflet
@@ -212,7 +219,7 @@ server <- function(input, output, session) {
       return(points)
     }) %>% bind_rows(.id = "trip_id") #group points by trip_id so polylines can be plotted for each trip
   })
-
+  
   #create a palette to color-code trips
   pal <- reactive({
     colorFactor(palette = 'Set2', routes()$trip_id)
@@ -229,7 +236,6 @@ server <- function(input, output, session) {
                     'Departure Time', 'Arrival Time', 'Travel Mode', 'Trip Purpose', additional_colnames)
     )
   })
-  
   
   output$map01 <- renderLeaflet({
     leaflet(data = df_sub()) %>%

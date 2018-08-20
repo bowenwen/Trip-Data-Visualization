@@ -1,4 +1,7 @@
-api_key.txt
-real_data*
+.RData
+.Rproj.user
 *.csv
 *.xlsx
+api_key.txt
+real_data*
+trips2017*
